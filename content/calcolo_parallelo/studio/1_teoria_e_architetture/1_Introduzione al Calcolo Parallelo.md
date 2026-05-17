@@ -57,6 +57,6 @@ Per alimentare i core con i dati necessari senza rallentarli, i processori imple
 | **Cache L3**     | Esterna ai core, sul chip. | Media (più veloce della RAM). | Grande.        | **Condivisa** tra tutti i core del processore.  |
 
 
-![[2_introduction_page_53.png|fix]]
+![[2_introduction_page_53.png]]
 
 *Nota: nei processori di fascia alta (es. HPC), l'immagine dell'architettura può presentare decine o centinaia di core interconnessi attorno a banchi di Cache L3 condivisa e controller di memoria complessi.*
