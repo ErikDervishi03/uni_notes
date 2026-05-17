@@ -1,3 +1,3 @@
 # Appunti Uni
 
-1. [[calcolo parallelo|Calcolo Parallelo]]
+1. [[calcolo_parallelo|Calcolo Parallelo]]
