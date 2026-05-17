@@ -17,8 +17,6 @@ L'obiettivo delle trasformazioni dei cicli è preservarne la semantica miglioran
 
 Un ciclo è parallelizzabile se le sue iterazioni sono **indipendenti**, ovvero possono essere eseguite in qualsiasi ordine (anche simultaneamente) producendo lo stesso risultato della versione seriale.
 
-![[7_parallelizing-loops_page_5.png|fix]]
-
 ---
 
 ## Dipendenze dei Dati (Data Dependence)
@@ -35,7 +33,6 @@ Sia $S_1$ eseguita prima di $S_2$ nell'ordine seriale:
 | **Anti Dependence**    | Write-After-Read (WAR)  | $S_1$ legge un valore prima che $S_2$ lo sovrascriva. | $S_1 \delta^{-1} S_2$ |
 | **Output Dependence**  | Write-After-Write (WAW) | $S_1$ e $S_2$ scrivono nella stessa locazione.        | $S_1 \delta^o S_2$    |
 
-![[7_parallelizing-loops_page_12.png|fix]]
 
 ### Loop-Carried Dependence (LCD)
 
@@ -69,8 +66,6 @@ for (i=1; i<N; i++)
 - Sorgente: `A[i-1][j+1]` (lettura), Destinazione: `A[i][j]` (scrittura).
 - Distanza: $d = (i - (i-1), j - (j+1)) = (1, -1)$
 - Direzione: $D = (<, >)$
-
-![[7_parallelizing-loops_page_22.png|fix]]
 
 ---
 
