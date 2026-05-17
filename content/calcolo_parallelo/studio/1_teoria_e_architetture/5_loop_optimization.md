@@ -108,10 +108,3 @@ L'opposto della fissione: unisce due cicli adiacenti con gli stessi limiti in un
 
 Suddivide lo spazio delle iterazioni in "mattonelle" (tiles) per far sì che i dati rimangano nella cache durante l'elaborazione del blocco.
 
-![[7_parallelizing-loops.pdf#page=42|fix]]
-
----
-
-### Strumento di Analisi: Dipendenze e Trasformazioni
-
-Per comprendere come le dipendenze influenzino la parallelizzazione e come le trasformazioni cambino l'ordine di esecuzione, puoi esplorare il seguente simulatore.
