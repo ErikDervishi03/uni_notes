@@ -1,4 +1,4 @@
-Puoi vedere la Consegna dell'Esercizio : [qua](https://www.moreno.marzolla.name/teaching/parallel-etudes/handouts/omp-schedule.html)
+Puoi la Consegna dell'Esercizio : [qua](https://www.moreno.marzolla.name/teaching/parallel-etudes/handouts/omp-schedule.html)
 ## Codice Soluzione
 
 ```c

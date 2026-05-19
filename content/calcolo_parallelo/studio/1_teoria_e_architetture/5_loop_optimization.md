@@ -1,105 +1,283 @@
-I cicli rappresentano la porzione di codice dove si concentra la maggior parte del tempo di esecuzione. Ottimizzare e parallelizzare i cicli è quindi l'obiettivo principale della programmazione ad alte prestazioni.
+I cicli rappresentano la porzione di codice dove si concentra la maggior parte del tempo di esecuzione di un programma. Ottimizzare e parallelizzare i cicli è quindi l'obiettivo principale della programmazione ad alte prestazioni (High Performance Computing).
 
-**Indice degli Argomenti:**
+## Introduzione
 
-- [[#Dipendenze dei Dati (Data Dependence)]]
-- [[#Vettori di Distanza e Direzione]]
-- [[#Criteri di Parallelizzazione]]
-- [[#Trasformazioni dei Cicli (Loop Transformations)]]
-
----
-## Introduzione e Ottimizzazione
-
-L'obiettivo delle trasformazioni dei cicli è preservarne la semantica migliorando al contempo le prestazioni.
-
-- **Sistemi Single-threaded:** Si ottimizza principalmente per la gerarchia di memoria (località).
-- **Sistemi Multi-threaded/Vettoriali:** Si punta alla parallelizzazione dei cicli.
-
-Un ciclo è parallelizzabile se le sue iterazioni sono **indipendenti**, ovvero possono essere eseguite in qualsiasi ordine (anche simultaneamente) producendo lo stesso risultato della versione seriale.
-
----
-
-## Dipendenze dei Dati (Data Dependence)
-
-Esiste una dipendenza tra due istruzioni $S_1$ e $S_2$ se entrambe accedono alla stessa locazione di memoria e almeno una delle due è una scrittura.
-
-### Tipi di Dipendenze
-
-Sia $S_1$ eseguita prima di $S_2$ nell'ordine seriale:
-
-| **Tipo di Dipendenza** | **Nome Comune**         | **Descrizione**                                       | **Simbolo**           |
-| ---------------------- | ----------------------- | ----------------------------------------------------- | --------------------- |
-| **Flow Dependence**    | Read-After-Write (RAW)  | $S_1$ scrive un valore che $S_2$ legge.               | $S_1 \rightarrow S_2$ |
-| **Anti Dependence**    | Write-After-Read (WAR)  | $S_1$ legge un valore prima che $S_2$ lo sovrascriva. | $S_1 \delta^{-1} S_2$ |
-| **Output Dependence**  | Write-After-Write (WAW) | $S_1$ e $S_2$ scrivono nella stessa locazione.        | $S_1 \delta^o S_2$    |
-
-
-### Loop-Carried Dependence (LCD)
-
-Una dipendenza si dice **trasportata dal ciclo** se l'accesso alla memoria avviene in iterazioni differenti. Se la dipendenza esiste solo all'interno della stessa iterazione, è detta _loop-independent_.
-
-- Le LCD impediscono la parallelizzazione banale del ciclo che le trasporta.
-
----
-
-## Vettori di Distanza e Direzione
-
-Per analizzare le dipendenze in cicli annidati, si utilizzano i vettori.
-
-1. **Vettore di Distanza ($d$):** Rappresenta il numero di iterazioni che intercorrono tra la causa e l'effetto della dipendenza.
-
-    - $d = I_{target} - I_{source}$
-    
-2. **Vettore di Direzione ($D$):** Indica il segno della distanza per ogni livello del ciclo.
-    - `'<'` se la distanza è positiva (dipendenza in iterazioni future).
-    - `'='` se la distanza è zero (dipendenza loop-independent per quel livello).
-    - `'>'` se la distanza è negativa (impossibile in un ordine di esecuzione sequenziale valido).
-
-**Esempio:**
+In certi casi, le iterazioni dei cicli sono completamente **indipendenti** l'una dall'altra.
 
 ```c
-for (i=1; i<N; i++)
-  for (j=1; j<N; j++)
-    A[i][j] = A[i-1][j+1] + 1;
+for (i = 0; i < N; i++) { 
+    foo(i); 
+}
 ```
 
-- Sorgente: `A[i-1][j+1]` (lettura), Destinazione: `A[i][j]` (scrittura).
-- Distanza: $d = (i - (i-1), j - (j+1)) = (1, -1)$
-- Direzione: $D = (<, >)$
+**Domanda:** Sarebbe possibile assegnare a unità di esecuzione diverse le iterazioni di questo ciclo?
+
+**Risposta:** In questo caso sì. Essendo le iterazioni indipendenti, possiamo parallelizzare il ciclo facilmente utilizzando direttive come `#pragma omp parallel for`.
 
 ---
 
-## Criteri di Parallelizzazione
+## Tipi di Dipendenze (Dependences)
 
-- Un ciclo a un determinato livello $k$ può essere parallelizzato se non trasporta alcuna dipendenza (ovvero, per ogni dipendenza, la $k$-esima componente del vettore di distanza è $0$).
-- Se un ciclo trasporta una dipendenza, le sue iterazioni devono essere eseguite sequenzialmente per preservare la correttezza.
+Si ha una _data dependence_ (dipendenza sui dati) tra due accessi alla memoria se **almeno uno dei due è in scrittura** e si riferiscono alla **stessa locazione di memoria**.
+
+Esistono diversi tipi di dipendenze:
+
+1. **Data-Flow (o True dependence) – RAW (Read After Write):** Una variabile viene prima scritta e in seguito letta.
+2. **Anti dependence – WAR (Write After Read):** Una variabile viene prima letta e in seguito sovrascritta.
+3. **Output dependence – WAW (Write After Write):** Una variabile viene scritta e successivamente sovrascritta.
+    
+
+Oltre alle dipendenze sui dati, esiste la:
+
+- **Control dependence:** Si verifica su un'istruzione `S1` se il risultato di `S1` determina se l'istruzione `S2` verrà eseguita o meno. Naturalmente, `S1` e `S2` non possono essere scambiate di ordine. Questo tipo di dipendenza si applica tipicamente alle condizioni di un costrutto `if-then-else` o a un ciclo rispetto al proprio corpo.
+  
+```c
+	if (a > 0) { // S1
+		a = 2 * c; // S2
+	} else { 
+		b = 3; 
+	}
+```
+    
+
+_Nota:_ Ai fini pratici della nostra analisi per la parallelizzazione, tratteremo tutte le dipendenze in modo simile.
+
+**Notazione:** Se c'è una dipendenza dall'istruzione S1 all'istruzione S2, scriveremo **`S1 -> S2`**.
+
+### Teorema fondamentale delle dipendenze
+
+> Qualsiasi trasformazione di riordino che preserva tutte le dipendenze in un programma, preserva il significato e il risultato di quel programma.
+
+Di conseguenza, se vogliamo parallelizzare un loop, dobbiamo verificare se ci sono _data dependence_. Nel caso non ci siano (o se riusciamo a gestirle/eliminarle), possiamo procedere alla parallelizzazione.
 
 ---
 
-## Trasformazioni dei Cicli (Loop Transformations)
+## Analisi: Esempi di Dipendenze
 
-Le trasformazioni cambiano l'ordine di esecuzione delle iterazioni per abilitare la parallelizzazione o migliorare la località.
+**Esempio 1: Iterazioni indipendenti**
 
-### 1. Loop Permutation (Interchange)
+```c
+for (i = 0; i < n; i++) {
+    S1: a[i] = b[i] + c[i];
+}
+```
 
-Scambia l'ordine dei cicli annidati (es. il ciclo `i` diventa quello interno e `j` quello esterno).
+![[Screenshot_20260519_105113.png]]
 
-- **Validità:** È legale se il nuovo ordine non inverte la direzione di alcuna dipendenza (non deve apparire `>` come prima direzione non nulla).
-- **Scopo:** Portare i cicli che trasportano dipendenze all'interno e quelli indipendenti all'esterno.
+In questo caso ogni iterazione è indipendente dalle altre. Il ciclo è **parallelizzabile**.
 
-### 2. Loop Fission (Distribution)
+**Esempio 2: Loop-carried dependence (RAW)**
 
-Divide un singolo ciclo in più cicli distinti, ciascuno contenente una parte del corpo originale.
+```c
+for (i = 1; i < n; i++) {
+    S1: a[i] = a[i-1] + b[i];
+}
+```
 
-- Utile per isolare istruzioni con dipendenze critiche.
+![[Screenshot_20260519_105138.png]]
 
-### 3. Loop Fusion
+Qui il problema è che ogni iterazione dipende dal risultato dell'iterazione precedente (viene letto `a[i-1]` appena scritto). Si tratta di una dipendenza trasportata dal ciclo (_loop-carried dependence_). **Non banalmente parallelizzabile**.
 
-L'opposto della fissione: unisce due cicli adiacenti con gli stessi limiti in un unico ciclo.
+**Esempio 3: Variabile di accumulo (Riduzione)**
 
-- Migliora la località dei dati e riduce l'overhead del ciclo.
+```c
+s = 0; 
+for (i = 0; i < n; i++) { 
+    S1: s = s + a[i]; 
+}
+```
 
-### 4. Loop Tiling (Blocking)
+![[Screenshot_20260519_105455.png]]
 
-Suddivide lo spazio delle iterazioni in "mattonelle" (tiles) per far sì che i dati rimangano nella cache durante l'elaborazione del blocco.
+Qui la variabile `s` viene sia letta che scritta ad ogni iterazione, creando una _loop-carried dependence_. Tuttavia, trattandosi di un'operazione di accumulo, in questo caso specifico basta utilizzare una clausola di **riduzione** (`reduction(+:s)`) per parallelizzarlo in sicurezza.
 
+**Esempio 4: Dipendenze incrociate complesse**
+
+
+```c
+for (i = 2; i < n; i++) {
+    S1: a[i] = 4 * c[i-1] - 2;
+    S2: b[i] = a[i] * 2;
+    S3: c[i] = a[i-1] + 3;
+    S4: d[i] = b[i] + c[i-2];
+}
+```
+
+![[Screenshot_20260519_110838.png]]
+
+---
+
+## Tecniche per Eliminare le Dipendenze (Optimizing loops)
+
+### 1. Allineamento (Alignment)
+
+A volte, traslando gli indici, è possibile rimuovere le dipendenze tra un'iterazione e l'altra.
+
+**Codice originale:**
+
+```c
+a[0] = 0; 
+for (i = 1; i < n; i++) { 
+    S1: a[i] = b[i-1] * c[i]; 
+    S2: d[i] = a[i-1] + 2; 
+} 
+```
+
+Notiamo che `S1` di un'iterazione produce il valore `a[i]` che verrà letto da `S2` nell'iterazione successiva (come `a[i-1]`).
+
+**Codice allineato:**
+```c
+a[0] = 0; 
+d[1] = a[0] + 2; 
+for (i = 1; i < n-1; i++) { 
+    T1: a[i] = b[i-1] * c[i]; 
+    T2: d[i+1] = a[i] + 2; 
+} 
+a[n-1] = b[n-2] * c[n-1];
+```
+
+In questo modo le dipendenze _tra_ iterazioni diverse si sono trasformate in dipendenze _all'interno della stessa_ iterazione, sbloccando potenziali parallelizzazioni.
+
+![[Screenshot_20260519_111656.png]]
+
+### 2. Loop Fission (Fissione del ciclo)
+
+In alcuni casi, le dipendenze possono essere rimosse spezzando il ciclo in due e utilizzando un array temporaneo di appoggio per copiare i dati.
+
+![[Screenshot_20260519_112432.png]]
+
+### 3. Loop Fusion (Fusione dei cicli)
+
+L'opposto della fissione. A volte è possibile e conveniente unire cicli multipli parallelizzabili per ridurre l'overhead (costo di gestione del ciclo).
+
+**Codice originale (due cicli):**
+
+```c
+for (i = 0; i < n; i++) { 
+    a[i] = b[i] * c[i]; 
+} 
+for (i = 0; i < n; i++) { 
+    b[i] = f(d[i]) * h[i]; 
+} 
+```
+
+**Codice fuso (Loop Fusion):**
+
+```c
+for (i = 0; i < n; i++) { 
+    a[i] = b[i] * c[i]; 
+    b[i] = f(d[i]) * h[i]; 
+}
+```
+
+---
+
+## Dipendenze Difficili (Difficult Dependences)
+
+Consideriamo il seguente doppio ciclo annidato:
+
+```c
+for (i = 1; i < n; i++) { 
+    for (j = 1; j < m; j++) { 
+        a[i][j] = a[i-1][j-1] + a[i-1][j] + a[i][j-1]; 
+    } 
+}
+```
+
+- Il ciclo esterno **non è parallelizzabile** a causa delle dipendenze.
+    
+    ![[Screenshot_20260519_113034.png]]
+    
+- Anche il ciclo interno **non è parallelizzabile**.
+    ![[Screenshot_20260519_113051.png]]
+
+**Soluzione: Scansione Diagonale (Wavefront sweep)**
+
+Notiamo che non ci sono frecce di dipendenza lungo le diagonali della matrice. È quindi possibile parallelizzare l'esecuzione attraversando la matrice diagonalmente (onda o _wavefront_).
+
+```c
+for (slice = 0; slice < n + m - 1; slice++) { 
+    z1 = slice < m ? 0 : slice - m + 1; 
+    z2 = slice < n ? 0 : slice - n + 1; 
+    
+    /* Questo ciclo for interno PUÒ essere parallelizzato */ 
+    for (i = slice - z2; i >= z1; i--) { 
+        j = slice - i; 
+        /* processa a[i][j] … */ 
+    } 
+}
+```
+---
+
+## Esercizi e Casi di Studio
+
+### Esercizio 1
+
+![[Pasted image 20260519120137.png]]
+
+_Nota:_ Un modo efficace per calcolare operazioni con dipendenze sequenziali strutturate (come somme prefisse) è usare l'algoritmo di **scan esclusiva**.
+
+### Esercizio 2: Analisi di dipendenze annidate
+
+```c
+#define N some_big_number 
+int s[N] = {1, 1, ... 1}; 
+double p[N] = { ... }; 
+/* Assume that function f() has no side effects */ 
+
+for (int i = 0; i < N; i++) { 
+    if (s[i]) { 
+        for (int j = 0; j < N; j++) { 
+            if (s[j] && f(p[i], p[j])) { 
+                s[j] = 0; 
+            } 
+        } 
+    } 
+}
+```
+
+**Analisi:** * Il **ciclo esterno non è parallelizzabile** perché c'è una potenziale _race condition_ (condizione di corsa) tra la scrittura `s[j] = 0;` (generata in un'iterazione) e la lettura `if (s[i])` (valutata in un'altra iterazione).
+
+- Il **ciclo interno è parallelizzabile** (per un dato `i` fissato, le iterazioni su `j` possono essere svolte in parallelo proteggendo o gestendo le scritture concorrenti su `s[j]`).
+    
+
+### Esercizio 3: Calcolo Stencil e Scelta del Loop da Parallelizzare
+
+```c
+#define N 10000 
+double phi[2][N][N], maxdelta; 
+const double EPS = 1.0e-6; 
+int cur = 0, next = 1; 
+/* ...Initializations not shown... */ 
+
+do { 
+    maxdelta = 0.0; 
+    for (int i = 1; i < N-1; i++) { 
+        for (int j = 1; j < N-1; j++) { 
+            phi[next][i][j] = (phi[cur][i+1][j] + phi[cur][i-1][j] + phi[cur][i][j+1] + phi[cur][i][j-1]) / 4; 
+            const double delta = fabs(phi[next][i][j] - phi[cur][i][j]); 
+            if (delta > maxdelta) { 
+                maxdelta = delta; 
+            } 
+        } 
+    } 
+    /* exchange “cur” and “next” */ 
+    const int tmp = cur; 
+    cur = next; 
+    next = tmp; 
+} while (maxdelta > EPS); 
+```
+
+**Analisi:**
+
+In questo frammento stiamo facendo una computazione di tipo [[calcolo parallelo/studio/1_teoria_e_architetture/4_parallel-programming-patterns#Stencil|stencil]]. Una matrice è di sola lettura (`phi[cur]`) e una è di sola scrittura (`phi[next]`). Essendo spazi di memoria separati, **non ci sono race condition** sugli array. L'unico problema è il valore `delta` che deve aggiornare `maxdelta` (variabile globalmente visibile), ma il problema è facilmente risolvibile con una **max reduction** (`reduction(max: maxdelta)`).
+
+**Quale ciclo parallelizzare?**
+
+Teoricamente possiamo parallelizzare qualunque ciclo dei due `for` annidati, ma qual è l'approccio migliore?
+
+- **Ciclo interno:** _Meglio di no._ Ad ogni iterazione del ciclo esterno si creerebbe e distruggerebbe (o sospenderebbe) la regione parallela (fork-join), introducendo un overhead enorme e ingiustificato.
+    
+- **Ciclo esterno:** _Altamente consigliato._ È perfettamente parallelizzabile e, utilizzando uno _scheduling statico_, non introduciamo overhead continuo e gestiamo bene eventuali sbilanciamenti di carico.
+    
+- **Collapse (`#pragma omp parallel for collapse(2)`):** _Fattibile._ Si può usare per ampliare lo spazio delle iterazioni, ma il calcolo matematico per mappare l'indice lineare sugli indici originari `i` e `j` introduce un overhead di calcolo non indifferente che potrebbe degradare le prestazioni.

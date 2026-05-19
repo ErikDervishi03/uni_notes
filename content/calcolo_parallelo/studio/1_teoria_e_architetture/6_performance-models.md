@@ -84,21 +84,26 @@ float *v = ...
 s = SumReduce(v, 0, n-1); 
 ````
 
+**Analisi Intuitiva:**
+![[Screenshot_20260507_122133.png]]
+Facciamo un'analisi assumendo che $p = n$
+
+- **Work** $T_1(n)$: 1+ 2 + 4 + ... + n = $O(n)$.
+- **Span $T_\infty(n)$:** altezza dell'albero = $O(\log_2 n)$.
+- **Speedup Massimo:** $\frac{T_1(n)}{T_\infty(n)} = \frac{O(n)}{O(\log_2 n)}$
+- **Efficienza con $n$ processori:** $\frac{\text{Speedup}}{p} = O\left(\frac{1}{\log_2 n}\right)$
+
 **Analisi Accurata:**
+Facciamo un'analisi accurata assumendo che $p = \infty$
 
 - **Work $T_1(n)$:** Il programma seriale deve eseguire $(n-1)$ somme per $n$ elementi. Il lavoro totale si esprime con la ricorrenza $W(n) = 2 W(n/2) + O(1)$, che si risolve in $O(n)$.
-    
 - **Span $T_\infty(n)$:** Avendo infiniti processori, ogni livello dell'albero di ricorsione viene eseguito in parallelo. Il cammino critico è l'altezza dell'albero. La ricorrenza è $S(n) = S(n/2) + O(1)$, che si risolve in $O(\log_2 n)$.
-    
 - **Speedup Massimo:** $\frac{O(n)}{O(\log_2 n)}$
-    
 - **Efficienza con $n$ processori:** $\frac{\text{Speedup}}{p} = O\left(\frac{1}{\log_2 n}\right)$
-    
 
 ### Esempio 2: Riduzione Lineare (For Loop in OpenMP)
 
 Vediamo un approccio iterativo classico, più facile da scrivere ma con dinamiche diverse.
-
 
 ```c
 float SumReduce( const float v[], int n ) { 
@@ -111,21 +116,27 @@ float SumReduce( const float v[], int n ) {
 } 
 ```
 
-**Analisi Realistica (Assumendo $p \ll n$ e scheduling statico):**
+**Analisi Realistica (Assumendo $p \ll n$, scheduling statico e riduzione in $O(1)$):**
 
 OpenMP dividerà l'array in blocchi di dimensione $n/p$. Ogni thread somma il suo blocco localmente (lavoro $\approx n/p$), poi OpenMP combina i $p$ risultati parziali alla fine del ciclo for.
 
-- **Work $T_1(n)$:** Sommare localmente costa $n$, combinare i $p$ risultati parziali costa $p$. Quindi $T_1(n) = n + p$. Se $p = O(n)$, il lavoro è $\approx n$.
-    
-- **Span $T_p(n)$:** La somma locale impiega $\frac{n}{p}$. La riduzione finale (se fatta ad albero da OpenMP) impiega $\log_2 p$. Quindi $T_p(n) = \frac{n}{p} + \log_2 p$.
-    
-- **Speedup:** Se $p \log_2 p = O(n)$ (cioè la dimensione dell'array è molto più grande dell'overhead dei processori), lo speedup è $\approx p$.
-    
-- **Efficienza:** Nello scenario ideale sopra citato, l'efficienza tende a $1$.
-    
+![[Screenshot_20260518_210133.png]]
+
+- **Work $T_1(n)$:** $p(n/p) + O(1) = n$. la somma delle zone blu.
+- **Span $T_p(n)$:**  $\frac{n}{p} + O(1) = \frac{n}{p}$. l'altezza del primo blocco.
+- **Speedup:** $\frac{T_1(n)}{T_p(n)} = p$
+- **Efficienza:** $\frac{S_p(n)}{p} = 1$.
+
+**Analisi Realistica (Assumendo $p \ll n$, scheduling statico e riduzione in $O(\log_2 p)$):**
+
+![[Screenshot_20260518_211609.png]]
+
+- **Work $T_1(n)$:** $n + p = n$. la somma delle zone blu.
+- **Span $T_p(n)$:**  $\frac{n}{p} + \log p = \frac{n + p\log p}{p} = \frac{n}{p}$. se $p\log p = O(n)$ l'altezza del primo blocco.
+- **Speedup:** $\frac{T_1(n)}{T_p(n)} = p$
+- **Efficienza:** $\frac{S_p(n)}{p} = 1$.
 
 ---
-
 ## Analisi Empirica (Misurazione del Wall-Clock Time)
 
 La teoria non sempre rispecchia i colli di bottiglia reali del sistema operativo. Per calcolare Speedup ed Efficienza empiricamente, fissiamo una dimensione $n$ sufficientemente grande e misuriamo $T_p(n)$ variando i processori.
@@ -133,14 +144,11 @@ La teoria non sempre rispecchia i colli di bottiglia reali del sistema operativo
 **Strumenti per misurare il tempo:**
 
 - **OpenMP:** `omp_get_wtime()`
-    
 - **MPI:** `MPI_Wtime()`
-    
 - **Soluzione C standard:** `clock_gettime()`
-    
 - **Soluzione Agnostica:** Usare un header personalizzato (es. `hpc.h`) per standardizzare le chiamate tra MPI, CUDA e OpenMP:
 
-    ```c
+```c
     #if _XOPEN_SOURCE < 600 
     #define _XOPEN_SOURCE 600 
     #endif 
@@ -149,8 +157,9 @@ La teoria non sempre rispecchia i colli di bottiglia reali del sistema operativo
     double start = hpc_gettime(); 
     /* codice da misurare */ 
     double finish = hpc_gettime(); 
-    ```
-    
+```
+
+Non usare la funzione ```clock()``` che misura la somma dei tempi impiegati da tutti i thread dall'inizio alla fine
 
 ---
 
@@ -162,13 +171,12 @@ Esistono due prospettive per valutare la scalabilità di un sistema:
 
 Si mantiene **costante la dimensione totale del problema ($n$)** e si aumenta progressivamente il numero di processori ($p$). L'obiettivo è misurare quanto velocemente risolviamo lo stesso identico problema.
 
-$$E_{strong}(p) = \frac{S(p)}{p} = \frac{T_1(n)}{p \times T_p(n)}$$
-
+$$E(p) = \frac{S(p)}{p} = \frac{T_1(n)}{p \times T_p(n)}$$
 ### 2. Weak Scaling (Aumentare la complessità)
 
 Si aumenta $p$, ma per bilanciare si **aumenta anche la dimensione del problema ($n_p$)**, in modo che la _quantità di lavoro assegnata a ciascun singolo processore rimanga costante_. L'obiettivo è misurare se il sistema è in grado di risolvere problemi più grandi senza degradare in prestazioni a causa dell'overhead di comunicazione.
 
-$$E_{weak}(p) = \frac{T_1(n_1)}{T_p(n_p)}$$
+$$W(p) = \frac{T_1(n_1)}{T_p(n_p)}$$
 
 Per calcolare il Weak Scaling, definiamo $f(n_p, p)$ come la **quantità di lavoro svolto da ciascun processore**. Vogliamo mantenere questa quantità costante ($f(n_p, p) = cost$). Vediamo come deve crescere la dimensione dell'input $n_p$ in tre casi pratici.
 
@@ -183,12 +191,8 @@ for (int i=0; i<n; i++)
 Il lavoro per processore è la dimensione diviso i processori.
 
 - $f(n_p, p) = \frac{n_p}{p}$
-    
 - Affinché $\frac{n_p}{p} = cost$, ricaviamo che $n_p = p \times cost$.
-    
-- **Conclusione:** L'input deve crescere in modo **direttamente proporzionale** al numero di processori.
-    
-
+- **Conclusione:** L'input deve crescere in modo **direttamente proporzionale** al numero di processori.    
 #### Caso 2: Somma tra Matrici 2D
 
 ```c
@@ -203,11 +207,8 @@ for (int i=0; i<n; i++) {
 Nota: `collapse(2)` è eccellente qui perché non ci sono dipendenze e distribuisce perfettamente i loop annidati. Il numero totale di operazioni è $n_p^2$.
 
 - $f(n_p, p) = \frac{n_p^2}{p}$
-    
 - Affinché $\frac{n_p^2}{p} = cost$, ricaviamo che $n_p^2 = p \times cost$, ovvero $n_p = \sqrt{p} \times cost'$.
-    
 - **Conclusione:** La dimensione del lato della matrice deve crescere in modo **proporzionale alla radice quadrata** del numero di unità di esecuzione.
-    
 
 #### Caso 3: Moltiplicazione tra Matrici 3D (Attenzione alle Race Condition)
 
@@ -225,11 +226,8 @@ _Spiegazione sul perché NON collassare tutti e 3 i cicli:_ Se facessimo `collap
 Analizziamo la crescita del lavoro: Il numero totale di iterazioni è $n_p^3$.
 
 - $f(n_p, p) = \frac{n_p^3}{p}$
-    
 - Affinché $\frac{n_p^3}{p} = cost$, ricaviamo che $n_p^3 = p \times cost$, ovvero $n_p = \sqrt[3]{p} \times cost'$.
-    
 - **Conclusione:** L'input (il lato $n$) deve crescere in modo **proporzionale alla radice cubica** del numero di processori.
-    
 
 ---
 
@@ -245,13 +243,9 @@ La Legge di Amdahl stabilisce il limite invalicabile di accelerazione di un prog
 Supponiamo che una frazione $\alpha$ del tempo totale del programma seriale **non possa essere parallelizzata**. Questo accade per:
 
 - Limitazioni dell'algoritmo stesso (es. loop-carried dependencies).
-    
 - Risorse strettamente condivise (es. scrittura sequenziale su file, I/O).
-    
 - Overhead intrinseci di avvio/chiusura thread o calcolo del partizionamento.
-    
 - Costi di comunicazione incolmabili.
-    
 
 La restante frazione $(1 - \alpha)$ si assume invece perfettamente parallelizzabile su $p$ processori.
 
